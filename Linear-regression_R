@@ -1,0 +1,34 @@
+GradesData <- read.csv("e:/IDS570/Fall2013/VideoHomework/Chapter10And11/GradesData.csv")
+GradesData <- subset(GradesData,select=c(GPA,HSM,HSE,SATM,SATV))
+
+for (i in 1:length(GradesData)) {boxplot(GradesData[,i], main=names(GradesData[i]), type="l")}
+
+#install.packages("MASS")
+library(MASS)
+pairs(GradesData)
+
+
+fit<-lm(GPA~.,data=GradesData)
+summary(fit)
+
+fit<-lm(GPA~HSM+HSE+SATM,data=GradesData)
+summary(fit)
+fit<-lm(GPA~HSM+HSE,data=GradesData)
+summary(fit)
+
+plot(fit)
+#install.packages("car")
+library(car)
+outlierTest(fit) # Bonferonni p-value for most extreme obs
+qqPlot(fit, main="QQ Plot") #qq plot for studentized resid
+vif(fit) # variance inflation factors
+sqrt(vif(fit)) > 2 # problem?
+residualPlots(fit,quadratic=FALSE)
+confint(fit)
+#install.packages("QuantPsyc")
+library(QuantPsyc)
+lm.beta(fit)
+
+newdata = data.frame(HSM=10 ,HSE=10) 
+predict(fit, newdata, interval="confidence") 
+predict(fit, newdata, interval="predict") 
