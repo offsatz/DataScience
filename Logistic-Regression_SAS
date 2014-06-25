@@ -1,0 +1,504 @@
+/* SAS code for logistic regression */
+
+PROC IMPORT OUT= WORK.sales 
+            DATAFILE= "C:\Users\sathishjayadevan\Documents\midterm proj-
+SAS\Student26.csv" 
+            DBMS=CSV REPLACE;
+     GETNAMES=YES;
+     DATAROW=2; 
+RUN;
+
+
+libname lib 'C:\Users\sathishjayadevan\Documents\midterm proj-SAS-cont';
+run;
+
+
+/* macro to get the list of variable list in a dataset into &varlist */
+%macro varlist(dsn);
+
+	options nosymbolgen;
+ 	%global varlist cnt;
+	%let varlist=;
+
+	/* open the dataset */
+ 	%let dsid=%sysfunc(open(&dsn));
+
+	/* count the number of variables in the dataset */
+ 	%let cnt=%sysfunc(attrn(&dsid,nvars));
+
+ 	%do i=1 %to &cnt;
+ 		%let varlist=&varlist %sysfunc(varname(&dsid,&i));
+ 	%end;
+
+	/* close the dataset */
+ 	%let rc=%sysfunc(close(&dsid));
+	%put &varlist;
+	
+%mend varlist;
+
+/* to get no of observations and variables */
+%macro ObsAndVars(dsn);
+		%global nobs nvars;
+		%let dsid=%sysfunc(open(&dsn));   
+		%let nobs=%sysfunc(attrn(&dsid,nobs));     
+		%let nvars=%sysfunc(attrn(&dsid,nvars));   
+		%let rc=%sysfunc(close(&dsid));            
+		%put nobs=&nobs nvars=&nvars;   
+%mend ObsAndVars;
+
+
+%macro FreqReport(dsn);
+
+	proc datasets nolist lib=work;
+	delete FreqReport;
+	run;
+
+	%global obs vars;
+	%ObsAndVars(&dsn);
+	%varlist(&dsn);
+
+	%local i j;
+ 	%do j=1 %to &nvars;
+
+		proc freq data=&dsn noprint order=freq;
+			tables %qscan(&varlist,&j)/out=freqout missing missprint;
+		run;
+
+		data missing nonmissing;
+			set  freqout;
+			if %qscan(&varlist,&j) =  '' then output missing;
+			if %qscan(&varlist,&j) ne '' then output nonmissing;
+		run;
+
+		proc summary data=nonmissing;
+			var count;
+			output out=nomissfigs n=catnomiss max=countmax;
+		run;
+
+		data top3;
+			set nonmissing;
+			if _n_ <=3;
+		run;
+
+		proc summary data=top3;
+			var count;
+			output out=top3count sum=Top3Sum;
+		run;
+
+		data record;
+
+			format varname $50.
+       		pctmiss pctmax pct3 percent6.;
+
+			label countmiss="Missing Count"
+      		CatNoMiss="# Non Missing Categories"
+      		CountMax= "# In Largest Non-Missing Category"
+	  		Top3Sum=  "# In Three Largest Categories"
+      		pctmiss="Missing Percent";;
+			varname="%qscan(&varlist,&j)";
+			merge missing (keep=count rename=(count=countmiss))
+      		nomissfigs (keep=CatNoMiss CountMax)
+      		top3count  (keep=Top3Sum)
+     		;
+	
+			pctmiss=countmiss/&nobs;
+			pctMax =CountMax/&nobs;
+			pct3   =Top3Sum/&nobs;
+		run;
+
+		proc append data=record base=FreqReport;
+		run;
+	%end;
+
+	data temp;
+		set  FreqReport;
+		len=length(varname);
+	run;
+
+	proc summary data=temp;
+		var len;
+		output out=maxlen max=;
+	run;
+
+	data _null_;
+		set  maxlen;
+		call symput('len',len);
+	run;
+
+	data FreqReport2;
+		format varname $&len..;
+		set  FreqReport;
+	run;
+
+	proc contents data=&dsn varnum noprint out=contents; run;
+
+	proc sort data=contents (rename=(name=varname)); by varname; run;
+
+	proc sort data=freqreport2;	by varname; run;
+
+	data  FreqReportWithLabels;
+		merge FreqReport2 (in=infreq)
+      	contents (in=incontents keep=varname label varnum type)
+	 	 ;
+		by varname;
+		if infreq and incontents;
+	run;
+
+	proc sort data=FreqReportWithLabels;
+		by varnum;
+	run;
+
+	proc format;
+		value type 1='Numb' 2='Char';
+	run;
+
+	proc print data=FreqReportWithLabels;
+		var varname type pctmiss CatNoMiss PctMax pct3 countmiss CountMax Top3Sum;
+		format type type.;
+		title "Freq Report for File &dsn";
+	run;
+	title;
+
+	options nomprint;
+
+%mend FreqReport;
+
+
+%Macro DissGraphMakerLogOdds(dsn,groups,indep,dep);
+
+	proc summary data=&dsn;
+		var &indep;
+		output out=Missing&indep nmiss=;
+	run;
+
+	data Missing&indep;
+		set  Missing&indep;
+		PctMiss=100*(&indep/_freq_);
+		rename &indep=NMiss;
+	run;
+
+	data _null_;
+		set  Missing&indep;
+		call symput ('Nmiss',Compress(Put(Nmiss,6.)));
+		call symput ('PctMiss',compress(put(PctMiss,4.)));
+	run;
+
+	proc rank data=&dsn groups=&groups out=RankedFile;
+		var &indep;
+		ranks Ranks&indep;
+	run;
+
+	proc summary data=RankedFile nway missing;
+		class Ranks&indep;
+		var &dep &indep;
+		output out=GraphFile mean=;
+	run;
+
+	data graphfile;
+		set  graphfile;
+		logodds=log(&dep/(1-&dep));
+	run;
+
+	data graphfile setaside;
+		set  graphfile;
+		if &indep=. then output setaside;
+		else output graphfile;
+	run;
+
+	data _null_;
+		set  setaside;
+		call symput('LogOdds',compress(put(LogOdds,4.2)));
+	run;
+
+	proc plot data=graphfile;
+		plot LogOdds*&indep=' ' $_FREQ_ /vpos=20;
+		title "&dep by &groups Groups of &indep NMiss=&Nmiss PctMiss=&PctMiss%  LogOdds in Miss=&LogOdds";
+	run;
+
+	title;
+	quit;
+
+%Mend DissGraphMakerLogOdds;
+
+
+%macro GraphLoop;        
+
+
+	%do i=1 %to 26;   * increase the # to see what happens;                                                            
+		%let variable=%scan(&varlist,&i);   
+  %DissGraphMakerLogOdds(sales,10,&variable,resp);
+ 	%end;                                                     
+ 
+%mend GraphLoop; 
+
+
+%macro set_holdout;
+
+	data lib.sales; set  work.sales;
+		rand=ranuni(100);
+   			if rand <=.7 then RespHoldout=.;
+			else if rand  >.7 then do;
+   				RespHoldout=Resp;
+  			 	Resp=.;
+			end;
+	run;
+
+%mend set_holdout;
+
+
+/* the following macro transforms categorical variables in L4 format */ 
+%macro trans_L4_vrbs;
+
+	data lib.sales3(drop= pwapar PAANHA PPERSA);
+		set  lib.sales2;
+		array orig[10](0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+		array new[10] (0,25,75,150,350,750,3000,7500,15000,30000);
+		retain orig1-orig10 new1-new10; 
+		do i=1 to dim(orig); 
+	 		if pwapar=orig[i] then pwapar2=new[i];
+	 		if PAANHA=orig[i] then PAANHA2=new[i];
+	 		if PPERSA=orig[i] then PPERSA2=new[i];
+		end;
+		drop orig1--orig10 new1--new10 i ; 
+	run;
+
+%mend trans_L4_vrbs;
+/* the following macro transforms categorical variables in L3 format */ 
+%macro trans_L3_vrbs;
+
+	data lib.sales4(drop= MSKA MHHUUR MSKC MAUT1 MFALLE MINKGE MOPLHO MSKB1 MFWEKI MGODPR MAUT2 MRELGE MAUT0 MGODRK MSKB2);
+		set  lib.sales3;
+		array orig[10](0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+		array new[10] (0,5.5,17,30,43,56,69,82,94,100);
+		retain orig1-orig10 new1-new10; 
+		do i=1 to dim(orig); 
+	 		if MSKA=orig[i] then MSKA2=new[i];
+	 		if MHHUUR=orig[i] then MHHUUR2=new[i];
+	 		if MSKC=orig[i] then MSKC2=new[i];
+			if MAUT1=orig[i] then MAUT12=new[i];
+			if MFALLE=orig[i] then MFALLE2=new[i];
+			if MINKGE=orig[i] then MINKGE2=new[i];
+			if MOPLHO=orig[i] then MOPLHO2=new[i];
+			if MSKB1=orig[i] then MSKB12=new[i];
+			if MFWEKI=orig[i] then MFWEKI2=new[i];
+			if MGODPR=orig[i] then MGODPR2=new[i];
+			if MAUT2=orig[i] then MAUT22=new[i];
+			if MRELGE=orig[i] then MRELGE2=new[i];
+			if MAUT0=orig[i] then MAUT02=new[i];
+			if MGODRK=orig[i] then MGODRK2=new[i];
+			if MSKB2=orig[i] then MSKB22=new[i];
+		end;
+		drop orig1--orig10 new1--new10 i; 
+	run;
+
+%mend trans_L3_vrbs;
+
+/* the following macro transforms categorical variables in L1 format */ 
+%macro trans_L1_vrbs;
+
+	data lib.sales5(drop = MGEMLE);
+		set  lib.sales4;
+		array orig[6](1, 2, 3, 4, 5, 6);
+		array new[6] (25,35,45,55,65,75);
+		retain orig1-orig6 new1-new6; 
+		do i=1 to dim(orig); 
+	 		if MGEMLE=orig[i] then MGEMLE2=new[i];
+		end;
+		drop orig1--orig6 new1--new6 i; 
+	run;
+
+%mend trans_L1_vrbs;
+  
+/* transforms non categorical to linear */
+%macro trans(vrb);
+data temp;
+set lib.sales5; 
+Dif&vrb=abs(&vrb);
+Sqr&vrb=(&vrb)**2;
+Cub&vrb=&vrb**3;
+run;
+proc logistic data=temp;
+model resp=Dif&vrb;
+ods output GlobalTests=LRDif(where=(Test="Likelihood Ratio"));
+title "Logistic Model for Dif&vrb";
+run;
+proc logistic data=temp;
+model resp=Sqr&vrb;
+ods output GlobalTests=LRSqr(where=(Test="Likelihood Ratio"));
+title "Logistic Model for Sqr&vrb";
+run;
+proc logistic descending data=temp;
+model resp=Cub&vrb;
+ods output GlobalTests=LRCub(where=(Test="Likelihood Ratio"));
+title "Logistic Model for CUB&vrb";
+run;
+title;
+data compare (keep=transform chisq);
+retain transform ChiSq;
+set LRDif(in=inDif)
+LRSqr(in=inSqr)
+LRCub(in=inCub)
+;
+if inDif then Transform='Linear';
+if inSqr then Transform='Square';
+if inCub then Transform='Cube';
+run;
+proc print data=compare noobs;
+title "Comparison of LR Chi-Square for &vrb";
+run;
+title;
+proc logistic descending data=temp;
+model resp=&vrb Dif&vrb Sqr&vrb Cub&vrb / selection=stepwise sentry=0.01;
+run;
+%mend;
+
+
+
+
+ 
+             
+/* the following macro transforms categorical variables into binary */
+%macro CatToBinWithDrop(filename,id,varname);
+
+	data &filename;
+		set  &filename;
+		%unquote(&varname._)= &varname; if &varname =' ' then %unquote(&varname._)='x';
+	run;
+
+	proc transreg data=&filename DESIGN;
+		model class (%unquote(&varname._)/ ZERO='x');
+		output out = %unquote(&varname._)(drop = Intercept _NAME_ _TYPE_);
+		id &ID;
+	run;
+
+	proc sort data=%unquote(&varname._);by &ID; run;
+
+	data &filename (drop=&varname %unquote(&varname._));
+		merge &filename %unquote(&varname._);
+		by &ID;
+	run;
+
+	proc datasets nolist;
+		delete %unquote(&varname._);
+	run;
+	quit;
+
+%mend CatToBinWithDrop;      
+
+*calculate the response percentage for user give value;
+%macro calculateUser(percent);
+%ObsAndVars(scored_holdout);
+
+%let percentobs = %eval((&percent * &nobs) / 100); 
+%put &percentobs;
+
+/* get the obs of the required percentage from the sorted datafile */ 
+data scored_holdout1;
+set scored_holdout(obs=&percentobs);
+run;
+
+proc freq data=scored_holdout noprint order=freq;
+			tables RespHoldout/out=respFreq;
+run;
+proc print data = respFreq;
+run;
+
+proc freq data=scored_holdout1 noprint order=freq;
+			tables RespHoldout/out=respFreq1;
+run;
+
+/* gets the freq count of default from the table */ 
+data _null_;
+set respFreq;
+call symput('countfull', COUNT);
+run;
+
+/* gets the freq count of required percentage from the table */ 
+data _null_;
+set respFreq1;
+call symput('countpercent', COUNT);
+run;
+
+%let percentout = %eval((&countpercent * 100) / &countfull);
+%put &countpercent;
+%put &countfull;
+%put Percentage of response = &percentout;
+%mend calculateUser;
+
+
+
+%set_holdout;
+
+data lib.sales1;
+set lib.sales;
+run;
+%ObsAndVars(lib.sales1);                                                           
+%varlist(lib.sales1);
+%GraphLoop();  
+%FreqReport(lib.sales1);
+%DissGraphMakerLogOdds(lib.sales1,10,pwapar,resp);
+
+%trans_L4_vrbs;
+%trans_L3_vrbs;
+%trans_L1_vrbs;
+
+%trans(MSKA2);
+%trans(MHHUUR2);
+%trans(MSKC2);
+%trans(MAUT12);
+%trans(MFALLE2);
+%trans(MINKGE2);
+%trans(MOPLHO2);
+%trans(MSKB12);
+%trans(MFWEKI2);
+%trans(MGODPR2);
+%trans(MAUT22);
+%trans(MRELGE2);
+%trans(MAUT02);
+%trans(MGEMOM);
+%trans(MSKB22);
+
+data lib.sales6(drop= MAUT12 MGEMOM);
+set lib.sales5;
+C_MAUT12= MAUT12**3;
+C_MGEMOM= MGEMOM**3;
+run;
+
+%CatToBinWithDrop(lib.sales6,seqnum,mostyp);
+%CatToBinWithDrop(lib.sales6,seqnum,moshoo);
+
+data lib.sales70;
+set lib.sales6;
+if RespHoldout=. ;
+run;
+
+data lib.sales30;
+set lib.sales6;
+if resp=. ;
+run;
+
+data lib.variable_name;
+set lib.sales70;
+drop rand RespHoldout SeqNum resp;
+run;
+
+ %varlist(lib.variable_name);
+
+proc logistic data=lib.sales70 outmodel=Fitted_Model desc ;
+model resp = &varlist / selection=stepwise;
+run;
+
+proc logistic inmodel=Fitted_Model;
+score data=lib.sales30 out=scored_holdout ;
+run;
+proc print data=scored_holdout;
+run;
+
+
+proc sort data = scored_holdout;
+by descending P_1;
+run;
+
+/* cut off percentage * and check the log*/
+
+%calculateUser(70);
