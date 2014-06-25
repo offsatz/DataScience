@@ -1,0 +1,32 @@
+LIBNAME Project1 "C:\Users\sathishjayadevan\Documents\project1"; 
+Run;
+ 
+*Creating the Dataset and Dropping PALLFNF_Index;
+DATA Project1.COMMODITIES;
+SET WORK.Comm(DROP=PALLFNF_Index);
+RUN;
+ 
+* Printing the data;
+PROC PRINT DATA=Project1.COMMODITIES;
+TITLE "Commodity Prices";
+RUN;
+ 
+ 
+* Standardizing the data;
+PROC STANDARD DATA=Project1.COMMODITIES MEAN=0 STD=1 OUT=Project1.COMM;
+RUN;
+ 
+/*PROC MEANS DATA=Project1.COMMODITIES;
+RUN;*/
+* Setting PRIORS as ONE;
+PROC FACTOR DATA=Project1.COMM
+	/* PRIORS=MAX */
+	PRIORS=ONE
+	ROTATE=EQUAMAX
+	NFACTOR = 5 
+	OUT=FACT 
+	SCREE;
+	TITLE "Factor Analysis of Commodities";
+RUN;
+ 
+*End of Code;
