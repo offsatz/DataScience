@@ -1,0 +1,72 @@
+#to perform t-test on shoppingamount to find if the average money spent by customers is greater than $35
+t.test(shoppers$Amount, mu = 35, alternative="greater")
+
+
+#proportion test on gas milage data to find if Larger proportion of women against men is more concerned about the gas mileage in a car
+View(GasGender)
+prop.table(GasGender,1)	
+prop.test(GasGender,alternative="greater")
+
+
+#chi-sqr test performed on customer satifactory survey to find if relationship exists between hotel location and the reason for the customer was unhappy
+(xsq <-chisq.test(Hotels))
+xsq$observed
+xsq$expected
+xsq$stdres
+
+
+#Welch Two Sample t-test to find if mu of debt to equity ratio of a healthy company is greater than the failed companies
+with(companies, t.test(Ratio[Group=='h'],Ratio[Group == 'f'],alternative="greater"))
+
+
+#Wilcox on Rank Sum Test to chk if the difference in distribution in two different samples of students
+wilcox.test(Difference[Group=="Treated"],Difference[Group=="Control"], paired=FALSE, exact=FALSE, alternative="greater");
+
+
+#wilcox signed rank test to if fabric color has same distribution in two dye, BlueA and BlueB
+wilcox.test(BlueA, BlueB, paired =TRUE,exact=FALSE,alternative="greater") 
+
+
+#one-way ANOVA: - three sets of students were given one of the three lessons in Singing, Computer and Piano(baseline).  
+#assumption 1: checking the variability of scores is less than 2
+std.ps=tapply(Score,Group,sd);
+std.ps;
+max(std.ps)/min(std.ps)<2;
+
+#assumpion 2: the dependent variable is normal with no outliers
+qqnorm(Score[Group=='G1-Singing'],main="QQ-plot for singing");
+qqline(Score[Group=='G1-Singing'],col="red");
+qqnorm(Score[Group=='G2-Computer'],main="QQ-plot for computer");
+qqline(Score[Group=='G2-Computer'],col="red");
+qqnorm(Score[Group=='G3-Piano'],main="QQ-plot for piano");
+qqline(Score[Group=='G3-Piano'],col="red");
+
+#One-way ANOVA
+aov.ps=aov(Score~Group);
+summary(aov.ps);
+
+#contrast test to determine which lesson has different average from other groups
+contrasts(Group)=contr.helmert(3); 
+contrasts(Group);
+aov.ps.H=aov(Score~Group);
+summary(aov.ps.H, split=list(Group=c(1,2)));
+mean.ps=tapply(Score,Group,mean);
+mean.ps;
+
+
+#two-way ANOVA 
+#interaction of the two groups
+interaction.plot(gender,dose,score);
+
+twowayaov.C15=aov(score~gender*dose);
+summary(twowayaov.C15);
+
+#levene test to chk the homogeneity of variance across groups
+library(car);
+leveneTest(score~gender*dose,center=mean);
+
+
+
+
+
+
